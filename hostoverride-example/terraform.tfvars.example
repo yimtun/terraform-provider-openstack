@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars and fill in. The real terraform.tfvars is gitignored.
+
+c1_user_name   = "admin"
+c1_password    = "REPLACE_ME"
+c1_project_id  = "00000000000000000000000000000000"
+c1_user_domain = "Default"
+
+c2_user_name   = "admin"
+c2_password    = "REPLACE_ME"
+c2_project_id  = "11111111111111111111111111111111"
+c2_user_domain = "Default"
+
+network_name = "private"
+
+# Scenario E only; leave empty to use the system trust store.
+# cacert_file = "/path/to/private-ca.pem"
