@@ -145,6 +145,10 @@ terraform plan
 注意 `.c1` 不是真实域名。打过补丁的传输层会把这个后缀从 `Host` 头里剥掉,
 转而拨向映射到的地址 —— 这就是它不需要动 `/etc/hosts` 的原因。
 
+把这件事跑起来的完整配置在 [hostoverride-example/](hostoverride-example/) ——
+里面还并排放了四种【不走补丁】的场景作对照:公网 DNS、`/etc/hosts`、直接写 IP、
+HTTPS + 私有 CA。
+
 ## 回退
 
 重新构建前先留一份旧二进制:

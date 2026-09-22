@@ -152,6 +152,10 @@ Note that `.c1` is not a real domain. The patched transport strips the suffix
 from the `Host` header and dials the mapped address instead, which is why this
 works without touching `/etc/hosts`.
 
+A runnable configuration doing exactly this — plus four contrasting scenarios
+that do *not* use the patch (public DNS, `/etc/hosts`, a bare IP, HTTPS with a
+private CA) — lives in [hostoverride-example/](hostoverride-example/).
+
 ## Rollback
 
 Keep a copy of the previous binary before rebuilding:

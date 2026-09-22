@@ -1,0 +1,25 @@
+# Copy to ./terraformrc and adjust the path, then run.sh will pick it up
+# through TF_CLI_CONFIG_FILE — scoped to this directory, leaving your global
+# ~/.terraformrc alone.
+#
+# Terraform has no way to name a provider binary from inside a .tf file:
+# required_providers says WHICH provider, the CLI config says WHERE it comes
+# from. This is that CLI config.
+#
+# The path is the DIRECTORY holding the binary, not the binary itself, and it
+# must be absolute.
+
+# Optional, unrelated to the override: keep one shared copy of every provider
+# instead of a full copy per working directory. Top-level setting, sibling of
+# provider_installation. The directory must already exist.
+#
+# plugin_cache_dir = "/home/you/.terraform/plugin-cache"
+
+provider_installation {
+  dev_overrides {
+    "terraform-provider-openstack/openstack" = "/absolute/path/to/terraform-provider-openstack"
+  }
+
+  # Everything not overridden above still resolves normally.
+  direct {}
+}

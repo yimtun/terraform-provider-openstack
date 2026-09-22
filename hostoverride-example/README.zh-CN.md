@@ -5,6 +5,52 @@
 这个 fork 所带 `OS_HOST_OVERRIDES` 补丁的可运行示例:一次 Terraform 运行同时
 对接两套 OpenStack 集群 —— 它们共用同一组内部服务域名,只有网关 IP 不同。
 
+## 建议先做:全机器共用一份 provider
+
+和本补丁无关,但建议在做别的之前先配好。默认情况下 `terraform init` 会把每个
+provider 解压一份**完整副本**到当前工作目录 —— 十个工程用同一个 provider
+就是十份副本,每份 ~60 MB。配上插件缓存后,它们会变成指向同一份的符号链接。
+
+```hcl
+# ~/.terraformrc
+plugin_cache_dir = "/home/you/.terraform/plugin-cache"
+
+provider_installation {
+  dev_overrides {
+    "terraform-provider-openstack/openstack" = "/abs/path/to/terraform-provider-openstack"
+  }
+  direct {}
+}
+```
+
+```bash
+mkdir -p ~/.terraform/plugin-cache     # Terraform 不会帮你创建
+```
+
+`plugin_cache_dir` 是**顶层配置项**,和 `provider_installation` 块平级,
+两者可以共存。环境变量 `TF_PLUGIN_CACHE_DIR` 效果相同。
+
+| 配置 | `.terraform/providers/` 里是什么 | 磁盘 |
+|---|---|---|
+| 默认 | **完整副本** | **每个工程目录**各 ~60 MB |
+| 配了 `plugin_cache_dir` | **符号链接**,指向共享缓存 | 全机器一份 |
+| `dev_overrides` | **什么都没有** | 零 —— 二进制在原地直接执行 |
+
+缓存生效后,工程目录只占几 KB。在不支持符号链接的平台上 Terraform 会改成复制,
+这份节省也就没了。
+
+两个要留意的点:
+
+- **缓存永不自动清理。** 你装过的每个版本都会一直留着。偶尔 `du -sh` 看一眼,
+  把不再用的删掉。
+- **锁文件的哈希。** 从缓存取的包只会记录**当前平台**的 `h1:` 哈希。如果锁文件
+  要和其他平台的机器共用,得对每个平台跑一次
+  `terraform providers lock -platform=...`。
+
+以上都**不适用于** `dev_overrides` 覆盖的 provider —— 它不下载、不缓存,
+也根本不会出现在 `.terraform/` 里。那个覆盖见下面的
+[怎么指定编译好的 provider](#怎么指定编译好的-provider)。
+
 ## 要解决的问题
 
 OpenStack 的 API 网关**按 `Host` 头分流**。两套同样方式部署的集群,暴露出来的
@@ -85,23 +131,43 @@ IP,按 `Host` 分流的网关认不出来;以及认证成功后 gophercloud 走�
 ## 文件
 
 ```
-main.tf                   两套带后缀的集群,外加一个普通用法
+main.tf                   上面那五种场景
 variables.tf              认证信息全用变量,不带默认值
 terraform.tfvars.example  复制成 terraform.tfvars 后填写
-run.sh                    设置 OS_HOST_OVERRIDES 并清掉代理变量
+terraformrc.example       复制成 terraformrc —— 告诉 Terraform 二进制在哪
+run.sh                    设置 TF_CLI_CONFIG_FILE、OS_HOST_OVERRIDES、代理
 ```
+
+## 怎么指定编译好的 provider
+
+**`.tf` 文件里写不了 provider 二进制路径。** `required_providers` 声明的是
+**要哪个** provider,而**二进制从哪来**属于 CLI 配置,不属于配置文件 ——
+这是 Terraform 有意的划分。所以覆盖规则放在单独的文件里:
+
+```bash
+cp terraformrc.example terraformrc
+$EDITOR terraformrc      # 填二进制所在【目录】的绝对路径,不是二进制本身
+```
+
+`run.sh` 检测到这个文件就会 export `TF_CLI_CONFIG_FILE`,使覆盖**只对本目录生效**,
+不动你全局的 `~/.terraformrc`。两个文件都已被 .gitignore 忽略。
+
+dev override 生效期间:`terraform init` 不会下载这个 provider,每次 plan 都会打印
+`Provider development overrides are in effect`,而且 `main.tf` 里的
+`version = "2.1.0"` 约束**不会**被强制执行。怎么把二进制编出来见
+[../build.zh-CN.md](../build.zh-CN.md)。
 
 ## 运行
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars   # 填入真实取值
+cp terraformrc.example terraformrc             # 填编译好的二进制路径
 $EDITOR run.sh                                 # 换成你自己的网关 IP
-terraform init
+./run.sh init
 ./run.sh plan
 ```
 
-如果你已经配了 dev override,`terraform init` 不会去下载这个 provider ——
-见 [../build.zh-CN.md](../build.zh-CN.md)。
+用 `./run.sh init` 而不是直接 `terraform init`,这样覆盖规则已经就位。
 
 ## 几个值得注意的点
 

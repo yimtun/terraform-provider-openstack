@@ -1,4 +1,5 @@
 terraform.tfvars
+terraformrc
 *.tfstate
 *.tfstate.*
 .terraform/
