@@ -55,6 +55,85 @@ downloaded, never cached, and never appears under `.terraform/` at all. That
 override is covered below under
 [Pointing Terraform at your build](#pointing-terraform-at-your-build).
 
+### Going fully offline
+
+A warm cache is not the same as working offline. `terraform init` always asks
+the registry **which versions exist**, and a lock file does not change that —
+tested with the network blocked, init still fails:
+
+```
+Error: Failed to query available provider packages
+```
+
+The cache saves the package *download*; it does not replace the registry as a
+source of metadata. For that you need `filesystem_mirror`:
+
+```hcl
+provider_installation {
+  filesystem_mirror {
+    path = "/home/you/.terraform/plugin-cache"
+  }
+}
+```
+
+**Inside this `filesystem_mirror` setup, `direct {}` must be gone.** Leave it
+in and Terraform still consults the registry and still fails offline.
+
+This applies *only* when a `filesystem_mirror` is present to install from.
+`dev_overrides` is **not** an installation method — it just points a few named
+providers at a local directory. A `provider_installation` block holding
+`dev_overrides` and nothing else can install no providers at all, and
+`terraform init` fails with *"no available releases match the given
+constraints"* for anything not overridden. Keep `direct {}` in that case.
+
+Dropping `direct` also means providers missing from the mirror can no longer be
+fetched at all. Scope both if you want the mirror and the registry:
+
+```hcl
+provider_installation {
+  filesystem_mirror {
+    path    = "/home/you/.terraform/plugin-cache"
+    include = ["registry.terraform.io/hashicorp/local"]
+  }
+  direct {
+    exclude = ["registry.terraform.io/hashicorp/local"]
+  }
+}
+```
+
+You also need a lock file. It can be produced from the mirror without network:
+
+```bash
+terraform providers lock \
+  -fs-mirror=/home/you/.terraform/plugin-cache \
+  -platform=linux_amd64
+```
+
+`-platform` may be repeated to cover several targets:
+
+```bash
+terraform providers lock \
+  -platform=linux_amd64  -platform=linux_arm64 \
+  -platform=darwin_amd64 -platform=darwin_arm64 \
+  -platform=windows_amd64
+```
+
+Two things to know about that:
+
+- The OS is **`darwin`**, not `macos`. `macos_arm64` is rejected.
+- Covering a platform means fetching that platform's package to hash it. With
+  `-fs-mirror` you can only lock platforms the mirror actually holds — a cache
+  filled by a Linux machine has no darwin packages and the command fails with
+  *"is not available for darwin_arm64"*. Locking several platforms therefore
+  needs either network access or a mirror populated for all of them.
+
+Finally, packages installed from a mirror report as `unauthenticated`: a
+filesystem mirror cannot carry HashiCorp's signatures, so Terraform trusts your
+local copy instead of verifying it. That is the price of going offline.
+
+None of this is needed for the provider under `dev_overrides`, which never
+touches the network in the first place.
+
 ## The problem
 
 An OpenStack API gateway routes by `Host` header. Two clusters deployed the

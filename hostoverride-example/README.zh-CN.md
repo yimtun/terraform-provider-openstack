@@ -51,6 +51,82 @@ mkdir -p ~/.terraform/plugin-cache     # Terraform 不会帮你创建
 也根本不会出现在 `.terraform/` 里。那个覆盖见下面的
 [怎么指定编译好的 provider](#怎么指定编译好的-provider)。
 
+### 做到完全离线
+
+缓存热了不等于能离线。`terraform init` **总是**要问 registry「有哪些版本」,
+有没有 lock 文件都一样 —— 断网实测,init 依然失败:
+
+```
+Error: Failed to query available provider packages
+```
+
+缓存省的是**包的下载**,它替代不了 registry 作为元数据来源。要替代得用
+`filesystem_mirror`:
+
+```hcl
+provider_installation {
+  filesystem_mirror {
+    path = "/home/you/.terraform/plugin-cache"
+  }
+}
+```
+
+**在这个 `filesystem_mirror` 方案里,`direct {}` 必须去掉。**
+留着它 Terraform 照样去问 registry,断网照样失败。
+
+⚠️ 这条**只在有 `filesystem_mirror` 可供安装时成立**。`dev_overrides`
+**不是**安装方法,它只是把几个指名的 provider 指向本地目录。一个
+`provider_installation` 块里如果只有 `dev_overrides`、再无其他,就等于
+一个 provider 都装不了,`terraform init` 会对所有未被覆盖的 provider 报
+*"no available releases match the given constraints"*。那种配置下
+`direct {}` 必须保留。
+
+另外去掉 `direct` 也意味着镜像里没有的 provider 彻底装不了。
+镜像和 registry 都要的话,用 `include` / `exclude` 划分范围:
+
+```hcl
+provider_installation {
+  filesystem_mirror {
+    path    = "/home/you/.terraform/plugin-cache"
+    include = ["registry.terraform.io/hashicorp/local"]
+  }
+  direct {
+    exclude = ["registry.terraform.io/hashicorp/local"]
+  }
+}
+```
+
+还需要一个 lock 文件。它可以**从镜像离线生成**:
+
+```bash
+terraform providers lock \
+  -fs-mirror=/home/you/.terraform/plugin-cache \
+  -platform=linux_amd64
+```
+
+`-platform` 可以重复,覆盖多个目标平台:
+
+```bash
+terraform providers lock \
+  -platform=linux_amd64  -platform=linux_arm64 \
+  -platform=darwin_amd64 -platform=darwin_arm64 \
+  -platform=windows_amd64
+```
+
+两个要点:
+
+- 操作系统写 **`darwin`**,不是 `macos`。写 `macos_arm64` 会被直接拒绝。
+- 覆盖一个平台意味着要**取到那个平台的包**才能算哈希。用 `-fs-mirror` 时,
+  只能锁镜像里真实存在的平台 —— Linux 机器攒出来的缓存里没有 darwin 的包,
+  命令会报 *"is not available for darwin_arm64"*。所以锁多平台要么联网,
+  要么镜像里先备齐所有平台的包。
+
+最后,从镜像装的包会显示为 `unauthenticated`:filesystem mirror 带不了
+HashiCorp 的签名,Terraform 只能信任你本地那份而不是去验证它。
+这是换取离线要付的代价。
+
+以上对 `dev_overrides` 覆盖的 provider 都不需要 —— 它本来就不碰网络。
+
 ## 要解决的问题
 
 OpenStack 的 API 网关**按 `Host` 头分流**。两套同样方式部署的集群,暴露出来的
